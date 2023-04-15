@@ -20,8 +20,8 @@ num_training_samples = int(len(FER2013_data) * train_ratio)
 num_val_samples = len(FER2013_data) - num_training_samples
 train_dataset, val_dataset = random_split(FER2013_data, [num_training_samples, num_val_samples])
 
-train_loader = DataLoader(train_dataset, batch_size = 256, shuffle = True, pin_memory = True, num_workers = 0)  ## have to set num_workers 0 now for some reason
-val_loader = DataLoader(val_dataset, batch_size = 256, shuffle = False, pin_memory = True, num_workers = 0)
+train_loader = DataLoader(train_dataset, batch_size = 256, shuffle = True, pin_memory = True, num_workers = 8, multiprocessing_context = 'fork')  ## have to set num_workers 0 now for some reason
+val_loader = DataLoader(val_dataset, batch_size = 256, shuffle = False, pin_memory = True, num_workers = 8, multiprocessing_context = 'fork')
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class Net(nn.Module):
@@ -32,17 +32,17 @@ class Net(nn.Module):
         self.relu1 = nn.ReLU()
         self.maxpool1 = nn.MaxPool2d(kernel_size = (2, 2), stride = (2, 2))
         self.conv2 = nn.Conv2d(32, 128, (5, 5), padding = 2)
-        nn.init.kaiming_uniform_(self.conv2.weight, mode='fan_in', nonlinearity='relu')
+        nn.init.kaiming_uniform_(self.conv2.weight, mode = 'fan_in', nonlinearity='relu')
         self.relu2 = nn.ReLU()
         self.maxpool2 = nn.MaxPool2d(kernel_size = (2, 2), stride = (2, 2))
         self.conv3 = nn.Conv2d(128, 128, (3, 3), padding = 1)
         self.relu3 = nn.ReLU()
         ##self.dropout = nn.Dropout(0.3)
         self.fc1 = nn.Linear(18432, 64)
-        nn.init.kaiming_uniform_(self.conv1.weight, mode='fan_in', nonlinearity='relu')
+        nn.init.kaiming_uniform_(self.conv1.weight, mode = 'fan_in', nonlinearity='relu')
         self.relu4 = nn.ReLU()
         self.fc2 = nn.Linear(64, classes)
-        self.logSM = LogSoftmax(dim=1)
+        self.logSM = LogSoftmax(dim = 1)
 
     def forward(self, x):
         x = self.conv1(x)
