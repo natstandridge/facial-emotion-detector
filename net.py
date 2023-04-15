@@ -63,7 +63,7 @@ class Net(nn.Module):
 def train(epochs = 3):
     n = Net(1, 7) ## one input channel (grayscale), 7 classes (emotions)
     n = n.to(device)
-    training_loss = 0.0
+    train_loss = 0.0
 
     ''' 
     Adam is a stochastic gradient descent optimizer that implements adaptive learning rates.
@@ -80,9 +80,9 @@ def train(epochs = 3):
     '''
     loss_function = nn.CrossEntropyLoss()
 
-    for epoch in tqdm(range(epochs)):
-        for data, label in tqdm(train_loader):
-            data, label = data.to(device), label
+    for epoch in tqdm(range(epochs), desc = 'Epochs'):
+        for data, label in tqdm(train_loader, desc = 'Training'):
+            data, label = data.to(device), label.to(device)
             output = n(data).to(device)
             loss = loss_function(output, label)
 
@@ -91,31 +91,31 @@ def train(epochs = 3):
             loss.backward()
             optimize.step()
 
-            training_loss += loss.item()
+            train_loss += loss.item()
 
-        ## start validation
-        n.eval()
-        val_loss = 0.0
-        correct = 0
-        total = 0
+    ## start validation
+    n.eval()
+    val_loss = 0.0
+    correct = 0
+    total = 0
 
-        with torch.no_grad():
-            for data, label in tqdm(val_loader):
-                data, label = data.to(device), label
-                output = n(data).to(device)
-                loss = loss_function(output, label)
-                val_loss += loss.item()
+    with torch.no_grad():
+        for data, label in tqdm(val_loader, desc = 'Validation'):
+            data, label = data.to(device), label.to(device)
+            output = n(data).to(device)
+            loss = loss_function(output, label)
+            val_loss += loss.item()
 
-                _, predicted = torch.max(output.data, 1)        ## ignore max value, get predicted label to compare to ground truth
-                total += label.size(0)                          ## get number of samples in current batch and add to total
+            _, predicted = torch.max(output.data, 1)        ## ignore max value, get predicted label to compare to ground truth
+            total += label.size(0)                          ## get number of samples in current batch and add to total
 
-                correct += (predicted == label).sum().item()    ## compare predicted to ground truth, .sum() to count all True bools, .item() converts from single element tensor to a Python int/float 
+            correct += (predicted == label).sum().item()    ## compare predicted to ground truth, .sum() to count all True bools, .item() converts from single element tensor to a Python int/float 
 
-        train_loss /= len(train_loader)         ## average training loss
-        val_loss /= len(val_loader)             ## average validation loss
-        val_accuracy = 100 * correct / total    ## percentage of correctly identified label instances
+    train_loss /= len(train_loader)         ## average training loss
+    val_loss /= len(val_loader)             ## average validation loss
+    val_accuracy = 100 * correct / total    ## percentage of correctly identified label instances
 
-        print(f"Epoch: {epoch + 1} - Training loss: {training_loss:.5f} - Validation loss: {val_loss:.5f} - Validation accuracy: {val_accuracy:.5f}") ## add 1 to epoch when displaying to avoid counting from 0
+    print(f"Epoch: {epoch + 1} - Training loss: {train_loss:.5f} - Validation loss: {val_loss:.5f} - Validation accuracy: {val_accuracy:.5f}") ## add 1 to epoch when displaying to avoid counting from 0
 
     with open('model.pt', 'wb') as f:
         save(n.state_dict(), f)
