@@ -50,7 +50,6 @@ class Net(nn.Module):
                 self.conv3 = nn.Conv2d(64, 128, (3, 3), padding = 1)
                 self.bn3 = nn.BatchNorm2d(128)
                 self.relu3 = nn.ReLU()
-                self.global_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
                 self.conv4 = nn.Conv2d(128, 64, kernel_size = 1)
                 self.bn4 = nn.BatchNorm2d(64)
                 nn.init.kaiming_uniform_(self.conv1.weight, mode = 'fan_in', nonlinearity='relu')
@@ -67,8 +66,6 @@ class Net(nn.Module):
                 x = self.conv3(x)
                 x = self.bn3(x)
                 x = self.relu3(x)
-                x = self.global_avg_pool(x)
-                x = x.view(x.size(0), -1) ## flatten tensor without changing the batch size (x.size(0)), -1 makes PyTorch infer the remaining dimensions so they stay the same
                 x = self.conv4(x)
                 x = self.bn4(x)
                 x = self.relu4(x)
@@ -145,12 +142,12 @@ class Net(nn.Module):
         self.conv3 = nn.Conv2d(64, 128, (3, 3), padding = 1)
         self.bn3 = nn.BatchNorm2d(128)
         self.relu3 = nn.ReLU()
-        self.global_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
         self.conv4 = nn.Conv2d(128, 64, kernel_size = 1)
         self.bn4 = nn.BatchNorm2d(64)
         nn.init.kaiming_uniform_(self.conv1.weight, mode = 'fan_in', nonlinearity='relu')
         self.relu4 = nn.ReLU()
         self.conv5 = nn.Conv2d(64, classes, kernel_size = 1)
+        self.avg_pool = nn.AvgPool2d(kernel_size = 48) ## reduce it down to 1D
 
     def forward(self, x):
         x = self.conv1(x)
@@ -162,16 +159,16 @@ class Net(nn.Module):
         x = self.conv3(x)
         x = self.bn3(x)
         x = self.relu3(x)
-        x = self.global_avg_pool(x)
-        x = x.view(x.size(0), -1) ## flatten tensor without changing the batch size (x.size(0)), -1 makes PyTorch infer the remaining dimensions so they stay the same
         x = self.conv4(x)
         x = self.bn4(x)
         x = self.relu4(x)
         x = self.conv5(x)
+        x = self.avg_pool(x)
+        x = x.view(x.size(0), -1)
 
         return(x)
 
-def train(epochs = 10):
+def train(epochs = 3):
     n = Net(1, 7) ## one input channel (grayscale), 7 classes (emotions)
     n = n.to(device)
     train_loss = 0.0
