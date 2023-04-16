@@ -13,7 +13,7 @@ def detect_and_draw(frame):
     gray_frame = cv2.resize(frame, (48, 48))
     gray_frame = cv2.cvtColor(gray_frame, cv2.COLOR_BGR2GRAY)   ## convert to gray
     dest = np.zeros((48, 48))
-    gray_frame = cv2.normalize(gray_frame, dest, 1.0, 0.0, cv2.NORM_MINMAX)
+    gray_frame = cv2.normalize(gray_frame, dest, 0.5, 0.5, cv2.NORM_MINMAX)
 
     net = Net(1, 7)
     net.load_state_dict(torch.load('model.pt'))

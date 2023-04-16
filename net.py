@@ -129,21 +129,25 @@ class Net(nn.Module):
                 save(n.state_dict(), f)
 
     '''
-    def __init__(self, num_channels, classes):
+    def __init__(self, input_channels, classes):
         super().__init__()
-        self.conv1 = nn.Conv2d(num_channels, 32, (3, 3), padding = 1)
+        self.conv1 = nn.Conv2d(input_channels, 32, (3, 3), padding = 1)
         self.bn1 = nn.BatchNorm2d(32)
+        self.dropout1 = nn.Dropout(0.5)
         nn.init.kaiming_uniform_(self.conv1.weight, mode='fan_in', nonlinearity='relu')
         self.relu1 = nn.ReLU()
-        self.conv2 = nn.Conv2d(32, 64, (3, 3), padding = 1)
-        self.bn2 = nn.BatchNorm2d(64)
+        self.conv2 = nn.Conv2d(32, 128, (3, 3), padding = 1)
+        self.bn2 = nn.BatchNorm2d(128)
+        self.dropout2 = nn.Dropout(0.5)
         nn.init.kaiming_uniform_(self.conv2.weight, mode = 'fan_in', nonlinearity='relu')
         self.relu2 = nn.ReLU()
-        self.conv3 = nn.Conv2d(64, 128, (3, 3), padding = 1)
-        self.bn3 = nn.BatchNorm2d(128)
+        self.conv3 = nn.Conv2d(128, 256, (3, 3), padding = 1)
+        self.bn3 = nn.BatchNorm2d(256)
+        self.dropout3 = nn.Dropout(0.5)
         self.relu3 = nn.ReLU()
-        self.conv4 = nn.Conv2d(128, 64, kernel_size = 1)
+        self.conv4 = nn.Conv2d(256, 64, kernel_size = 1)
         self.bn4 = nn.BatchNorm2d(64)
+        self.dropout4 = nn.Dropout(0.5)
         nn.init.kaiming_uniform_(self.conv1.weight, mode = 'fan_in', nonlinearity='relu')
         self.relu4 = nn.ReLU()
         self.conv5 = nn.Conv2d(64, classes, kernel_size = 1)
@@ -152,15 +156,19 @@ class Net(nn.Module):
     def forward(self, x):
         x = self.conv1(x)
         x = self.bn1(x)
+        x = self.dropout1(x)
         x = self.relu1(x)
         x = self.conv2(x)
         x = self.bn2(x)
+        x = self.dropout2(x)
         x = self.relu2(x)
         x = self.conv3(x)
         x = self.bn3(x)
+        x = self.dropout3(x)
         x = self.relu3(x)
         x = self.conv4(x)
         x = self.bn4(x)
+        x = self.dropout4(x)
         x = self.relu4(x)
         x = self.conv5(x)
         x = self.avg_pool(x)
@@ -172,7 +180,7 @@ def train(epochs = 3):
     n = Net(1, 7) ## one input channel (grayscale), 7 classes (emotions)
     n = n.to(device)
     train_loss = 0.0
-    optimizer = Adam(n.parameters(), lr = 0.001)
+    optimizer = Adam(n.parameters(), lr = 0.01)
     scheduler = StepLR(optimizer, step_size = 5, gamma = 0.1)
     loss_function = nn.CrossEntropyLoss()
 
@@ -190,7 +198,7 @@ def train(epochs = 3):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            scheduler.step
+            scheduler.step()
 
             train_loss += loss.item()
 
