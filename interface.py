@@ -15,19 +15,19 @@ def detect_and_draw(frame):
     dest = np.zeros((48, 48))
     gray_frame = cv2.normalize(gray_frame, dest, 1.0, 0.0, cv2.NORM_MINMAX)
 
-    # net = Net(1, 7)
-    # net.load_state_dict(torch.load('model.pt'))
-    # net.eval()
+    net = Net(1, 7)
+    net.load_state_dict(torch.load('model.pt'))
+    net.eval()
 
-    # pred = net(torch.from_numpy(gray_frame).unsqueeze(0).unsqueeze(0).float())
+    pred = net(torch.from_numpy(gray_frame).unsqueeze(0).unsqueeze(0).float())
 
-    ##pred = torch.argmax(pred).item()
+    pred = torch.argmax(pred).item()
 
     print(faces)
 
     for (x, y, w, h) in faces:
         cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 20, 20), 3)
-    return(frame)
+    return(frame, pred)
 
 def main():
     capture = cv2.VideoCapture(0)
@@ -38,10 +38,10 @@ def main():
         if not val:
             break
 
-        new_frame = detect_and_draw(frame) ## get the frame with rectangle drawn around the face
+        new_frame, pred = detect_and_draw(frame) ## get the frame with rectangle drawn around the face
 
         cv2.imshow('Live Emotion Detector', new_frame)
-        ##print(f"Emotion prediction is: {pred}")
+        print(f"Emotion prediction is: {pred}")
 
         if cv2.waitKey(1) & 0xFF == ord('c'):
             break

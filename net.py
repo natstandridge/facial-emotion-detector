@@ -1,85 +1,188 @@
 import torch
-from torch import nn, save, flatten
-from torch.nn import LogSoftmax
+from torch import nn, save
 from torch.optim import Adam
+from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader, random_split
 from torchvision.transforms import transforms
 from tqdm import tqdm
+import logging
 
 from loader import FER2013
 
-transform = transforms.Compose([
+logging.basicConfig(filename="net.log", level=logging.INFO)
+
+train_transform = transforms.Compose([
     transforms.ToTensor(),
-    transforms.Normalize((0.5,),(0.5,))
+    transforms.Normalize([0.5],[0.5]),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation(15),
+    transforms.RandomPerspective(0.25, 0.25),
+    transforms.RandomErasing(0.25, (0.05, 0.25), (0.05, 0.25), 0, True)
 ])
 
-FER2013_data = FER2013(train = True, transform = transform) ## turn to tensor and normalize pixel values
-train_ratio = 0.8
+val_transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize([0.5],[0.5]),
+])
 
-num_training_samples = int(len(FER2013_data) * train_ratio)
-num_val_samples = len(FER2013_data) - num_training_samples
-train_dataset, val_dataset = random_split(FER2013_data, [num_training_samples, num_val_samples])
+FER2013_train = FER2013(train = True, transform = train_transform)
+FER2013_val = FER2013(train = False, transform = val_transform)
 
-train_loader = DataLoader(train_dataset, batch_size = 256, shuffle = True, pin_memory = True, num_workers = 8, multiprocessing_context = 'fork')  ## have to set num_workers 0 now for some reason
-val_loader = DataLoader(val_dataset, batch_size = 256, shuffle = False, pin_memory = True, num_workers = 8, multiprocessing_context = 'fork')
+train_loader = DataLoader(FER2013_train, batch_size = 512, shuffle = True, pin_memory = True, num_workers = 8, multiprocessing_context = 'fork')
+val_loader = DataLoader(FER2013_val, batch_size = 512, shuffle = False, pin_memory = True, num_workers = 8, multiprocessing_context = 'fork')
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class Net(nn.Module):
+    '''
+    Neural Net Structure:
+
+        class Net(nn.Module):
+            def __init__(self, num_channels, classes):
+                super().__init__()
+                self.conv1 = nn.Conv2d(num_channels, 32, (3, 3), padding = 1)
+                self.bn1 = nn.BatchNorm2d(32)
+                nn.init.kaiming_uniform_(self.conv1.weight, mode='fan_in', nonlinearity='relu')
+                self.relu1 = nn.ReLU()
+                self.conv2 = nn.Conv2d(32, 64, (3, 3), padding = 1)
+                self.bn2 = nn.BatchNorm2d(64)
+                nn.init.kaiming_uniform_(self.conv2.weight, mode = 'fan_in', nonlinearity='relu')
+                self.relu2 = nn.ReLU()
+                self.conv3 = nn.Conv2d(64, 128, (3, 3), padding = 1)
+                self.bn3 = nn.BatchNorm2d(128)
+                self.relu3 = nn.ReLU()
+                self.global_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+                self.conv4 = nn.Conv2d(128, 64, kernel_size = 1)
+                self.bn4 = nn.BatchNorm2d(64)
+                nn.init.kaiming_uniform_(self.conv1.weight, mode = 'fan_in', nonlinearity='relu')
+                self.relu4 = nn.ReLU()
+                self.conv5 = nn.Conv2d(64, classes, kernel_size = 1)
+
+            def forward(self, x):
+                x = self.conv1(x)
+                x = self.bn1(x)
+                x = self.relu1(x)
+                x = self.conv2(x)
+                x = self.bn2(x)
+                x = self.relu2(x)
+                x = self.conv3(x)
+                x = self.bn3(x)
+                x = self.relu3(x)
+                x = self.global_avg_pool(x)
+                x = x.view(x.size(0), -1) ## flatten tensor without changing the batch size (x.size(0)), -1 makes PyTorch infer the remaining dimensions so they stay the same
+                x = self.conv4(x)
+                x = self.bn4(x)
+                x = self.relu4(x)
+                x = self.conv5(x)
+
+                return(x)
+
+    Training Structure:
+
+        def train(epochs = 1):
+            n = Net(1, 7) ## one input channel (grayscale), 7 classes (emotions)
+            n = n.to(device)
+            train_loss = 0.0
+            optimizer = Adam(n.parameters(), lr = 0.001)
+            scheduler = StepLR(optimizer, step_size = 5, gamma = 0.1)
+            loss_function = nn.CrossEntropyLoss()
+
+            n.train()
+
+            logging.info("Starting training...")
+            
+            for epoch in tqdm(range(epochs), desc = 'Epochs'):
+                for data, label in tqdm(train_loader, desc = 'Training'):
+                    data, label = data.to(device), label.to(device)
+                    output = n(data).to(device)
+                    loss = loss_function(output, label)
+
+                    ## back propogation starts here
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+                    scheduler.step
+
+                    train_loss += loss.item()
+
+            ## start validation
+            n.eval()
+            val_loss = 0.0
+            correct = 0
+            total = 0
+
+            with torch.no_grad():
+                for data, label in tqdm(val_loader, desc = 'Validation'):
+                    data, label = data.to(device), label.to(device)
+                    output = n(data).to(device)
+                    loss = loss_function(output, label)
+                    val_loss += loss.item()
+
+                    total += label.size(0)     ## get number of samples in current batch and add to total
+                    _, predicted = torch.max(output.data, 1)    ## ignore max value, get predicted label to compare to ground truth
+                    correct += (predicted == label).sum().item()    ## compare predicted to ground truth, .sum() to count all True bools, .item() converts from single element tensor to a Python int/float 
+
+            train_loss /= len(train_loader)         ## average training loss
+            val_loss /= len(val_loader)             ## average validation loss
+            val_accuracy = 100 * correct / total    ## percentage of correctly identified label instances
+
+            print(f"Training and validation complete.\nEpochs completed: {epoch + 1} - Training loss: {train_loss:.5f} - Validation loss: {val_loss:.5f} - Validation accuracy: {val_accuracy:.5f}") ## add 1 to epoch when displaying to avoid counting from 0
+            logging.info(f"Training and validation complete.\nEpochs completed: {epoch + 1} - Training loss: {train_loss:.5f} - Validation loss: {val_loss:.5f} - Validation accuracy: {val_accuracy:.5f}\nFootprint:\n{Net.__doc__}\n\n") ## storing structure in log to optimizer accuracy TODO: replace this with CSV storage once model is performing well
+
+            with open('model.pt', 'wb') as f:
+                save(n.state_dict(), f)
+
+    '''
     def __init__(self, num_channels, classes):
         super().__init__()
-        self.conv1 = nn.Conv2d(num_channels, 32, (5, 5), padding = 2)
+        self.conv1 = nn.Conv2d(num_channels, 32, (3, 3), padding = 1)
+        self.bn1 = nn.BatchNorm2d(32)
         nn.init.kaiming_uniform_(self.conv1.weight, mode='fan_in', nonlinearity='relu')
         self.relu1 = nn.ReLU()
-        self.maxpool1 = nn.MaxPool2d(kernel_size = (2, 2), stride = (2, 2))
-        self.conv2 = nn.Conv2d(32, 128, (5, 5), padding = 2)
+        self.conv2 = nn.Conv2d(32, 64, (3, 3), padding = 1)
+        self.bn2 = nn.BatchNorm2d(64)
         nn.init.kaiming_uniform_(self.conv2.weight, mode = 'fan_in', nonlinearity='relu')
         self.relu2 = nn.ReLU()
-        self.maxpool2 = nn.MaxPool2d(kernel_size = (2, 2), stride = (2, 2))
-        self.conv3 = nn.Conv2d(128, 128, (3, 3), padding = 1)
+        self.conv3 = nn.Conv2d(64, 128, (3, 3), padding = 1)
+        self.bn3 = nn.BatchNorm2d(128)
         self.relu3 = nn.ReLU()
-        ##self.dropout = nn.Dropout(0.3)
-        self.fc1 = nn.Linear(18432, 64)
+        self.global_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.conv4 = nn.Conv2d(128, 64, kernel_size = 1)
+        self.bn4 = nn.BatchNorm2d(64)
         nn.init.kaiming_uniform_(self.conv1.weight, mode = 'fan_in', nonlinearity='relu')
         self.relu4 = nn.ReLU()
-        self.fc2 = nn.Linear(64, classes)
-        self.logSM = LogSoftmax(dim = 1)
+        self.conv5 = nn.Conv2d(64, classes, kernel_size = 1)
 
     def forward(self, x):
         x = self.conv1(x)
+        x = self.bn1(x)
         x = self.relu1(x)
-        x = self.maxpool1(x)
         x = self.conv2(x)
+        x = self.bn2(x)
         x = self.relu2(x)
-        x = self.maxpool2(x)
         x = self.conv3(x)
+        x = self.bn3(x)
         x = self.relu3(x)
-        x = flatten(x, 1)
-        x = self.fc1(x)
+        x = self.global_avg_pool(x)
+        x = x.view(x.size(0), -1) ## flatten tensor without changing the batch size (x.size(0)), -1 makes PyTorch infer the remaining dimensions so they stay the same
+        x = self.conv4(x)
+        x = self.bn4(x)
         x = self.relu4(x)
-        x = self.fc2(x)
+        x = self.conv5(x)
 
-        return(self.logSM(x))
+        return(x)
 
-def train(epochs = 3):
+def train(epochs = 10):
     n = Net(1, 7) ## one input channel (grayscale), 7 classes (emotions)
     n = n.to(device)
     train_loss = 0.0
-
-    ''' 
-    Adam is a stochastic gradient descent optimizer that implements adaptive learning rates.
-    The learning rate gets adjusted for each paramters based on its history of gradients.
-        
-    Adam takes the neural net parameters, and a learning rate.
-    (higher learning rate causes parameters to be updated more aggressively)
-    '''
-    optimize = Adam(n.parameters(), lr = 0.0001)
-
-    '''
-    A loss function calculates how well the model is performing (predictions vs correct labels)
-    The error is then used to update the model's parameters to make future predictions better
-    '''
+    optimizer = Adam(n.parameters(), lr = 0.001)
+    scheduler = StepLR(optimizer, step_size = 5, gamma = 0.1)
     loss_function = nn.CrossEntropyLoss()
 
+    n.train()
+
+    logging.info("Starting training...")
+    
     for epoch in tqdm(range(epochs), desc = 'Epochs'):
         for data, label in tqdm(train_loader, desc = 'Training'):
             data, label = data.to(device), label.to(device)
@@ -87,9 +190,10 @@ def train(epochs = 3):
             loss = loss_function(output, label)
 
             ## back propogation starts here
-            optimize.zero_grad()
+            optimizer.zero_grad()
             loss.backward()
-            optimize.step()
+            optimizer.step()
+            scheduler.step
 
             train_loss += loss.item()
 
@@ -106,16 +210,16 @@ def train(epochs = 3):
             loss = loss_function(output, label)
             val_loss += loss.item()
 
-            _, predicted = torch.max(output.data, 1)        ## ignore max value, get predicted label to compare to ground truth
-            total += label.size(0)                          ## get number of samples in current batch and add to total
-
+            total += label.size(0)     ## get number of samples in current batch and add to total
+            _, predicted = torch.max(output.data, 1)    ## ignore max value, get predicted label to compare to ground truth
             correct += (predicted == label).sum().item()    ## compare predicted to ground truth, .sum() to count all True bools, .item() converts from single element tensor to a Python int/float 
 
     train_loss /= len(train_loader)         ## average training loss
     val_loss /= len(val_loader)             ## average validation loss
     val_accuracy = 100 * correct / total    ## percentage of correctly identified label instances
 
-    print(f"Epoch: {epoch + 1} - Training loss: {train_loss:.5f} - Validation loss: {val_loss:.5f} - Validation accuracy: {val_accuracy:.5f}") ## add 1 to epoch when displaying to avoid counting from 0
+    print(f"Training and validation complete.\nEpochs completed: {epoch + 1} - Training loss: {train_loss:.5f} - Validation loss: {val_loss:.5f} - Validation accuracy: {val_accuracy:.5f}") ## add 1 to epoch when displaying to avoid counting from 0
+    logging.info(f"Training and validation complete.\nEpochs completed: {epoch + 1} - Training loss: {train_loss:.5f} - Validation loss: {val_loss:.5f} - Validation accuracy: {val_accuracy:.5f}\nFootprint:\n{Net.__doc__}\n\n") ## storing structure in log to optimizer accuracy TODO: replace this with CSV storage once model is performing well
 
     with open('model.pt', 'wb') as f:
         save(n.state_dict(), f)
